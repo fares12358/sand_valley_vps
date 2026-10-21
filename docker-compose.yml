@@ -1,0 +1,68 @@
+# Sand Valley on one machine: MongoDB + API + dashboard (nginx).
+#
+#   cp .env.example .env        # then fill it in
+#   docker compose up -d --build
+#   docker compose run --rm backend node backend/scripts/seed.mjs     # first time only: creates the admin
+#
+# Open http://<server>:${WEB_PORT}  (put a TLS proxy in front for HTTPS).
+name: sandvalley
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-sandvalley}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # no published port: only the backend container can reach the database
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-sandvalley}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB:-sandvalley}?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASS: ${EMAIL_PASS:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL in .env (the address people use, no trailing slash)}
+      UPLOAD_DIR: /data/uploads
+      # used by scripts/seed.mjs
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+    volumes:
+      - uploads:/data/uploads
+    # reachable inside the compose network as backend:5000, not published
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      - uploads:/data/uploads:ro
+
+volumes:
+  mongo-data:
+  uploads:

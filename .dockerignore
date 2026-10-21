@@ -1,0 +1,14 @@
+**/node_modules
+**/.env
+.git
+.gitignore
+.dockerignore
+docker-compose*.yml
+backend/uploads
+backend/tests
+backend/docs
+frontend/dist
+frontend/.env*
+docs
+*.md
+*.log
