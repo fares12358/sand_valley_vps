@@ -100,10 +100,11 @@ export const registerUser = async (req, res) => {
       // lost a race with a parallel registration: the unique indexes decide
       if (!isDuplicateKey(e)) throw e;
       // name the index that really collided; anything but username/email is not an e-mail clash
-      const key = Object.keys(e.keyPattern || e.keyValue || {})[0];
-      if (key !== 'username' && key !== 'email') {
+      const hit = e.keyPattern || e.keyValue || {};
+      const key = 'username' in hit ? 'username' : 'email' in hit ? 'email' : null;
+      if (!key) {
         console.error('Registration duplicate key on unexpected index:', e.message);
-        return res.status(500).json({ message: 'Registration failed', error: e.message });
+        return res.status(500).json({ message: 'Registration failed' });
       }
       return res.status(409).json({ message: `${key} already exist` });
     }
