@@ -15,8 +15,9 @@ import { deferImageDeletes } from './utils/uploader/cleanup.js';
 import { uploadUrls } from './middleware/uploadUrls.js';
 import { UPLOAD_DIR } from './utils/uploader/upload.js';
 
-// CORS_ORIGINS (env, comma separated) = the origins allowed to call the API. Empty = every origin.
-const origins = (process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
+// CORS is open to every origin: the mobile app (and Flutter web) must always reach the API, and
+// authentication is a Bearer token (no cookies), so an origin allow-list adds no protection.
+// CORS_ORIGINS is no longer used.
 
 const PORT = process.env.PORT || 5000;
 const app = express();
@@ -26,7 +27,7 @@ app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
 app.use(helmet());
-app.use(cors(origins.length ? { origin: origins } : {}));
+app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 // Express 5 leaves req.body undefined when no body was sent; handlers destructure it
 app.use((req, res, next) => {
