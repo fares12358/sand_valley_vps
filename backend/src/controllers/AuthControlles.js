@@ -233,6 +233,9 @@ export const updateUser = async (req, res) => {
     return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
   if (email && !isEmail(email))
     return res.status(400).json({ message: 'Please enter a valid email address' });
+  // these go into database queries: only plain strings are accepted (no query operators)
+  if ([username, password, newPassword, name].some((v) => v !== undefined && typeof v !== 'string'))
+    return res.status(400).json({ message: 'Invalid field value' });
   try {
     const user = await byId(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
