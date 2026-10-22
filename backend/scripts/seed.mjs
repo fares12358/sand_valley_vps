@@ -1,17 +1,20 @@
-// Prepares a fresh database: creates the single content document and the master admin account.
+// Prepares a fresh database: creates the collections' indexes and the master admin account.
 //
 //   ADMIN_PASSWORD='something-long' node scripts/seed.mjs
 //   node scripts/seed.mjs --reset-password        set a new password for the existing admin
 //
-// Reads MONGO_URI from the environment / .env. Optional: ADMIN_USERNAME (admin), ADMIN_PASSWORD
-// (generated and printed once when missing), ADMIN_EMAIL, ADMIN_NAME.
+// Reads MONGO_URI (MongoDB Atlas) from the environment / .env. Optional: ADMIN_USERNAME (admin),
+// ADMIN_PASSWORD (generated and printed once when missing), ADMIN_EMAIL, ADMIN_NAME.
 // Idempotent: running it again never duplicates anything and never touches existing content.
+// Data from the old single-document layout is moved with scripts/migrate-split.mjs.
 
 import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import User from '../src/models/Users.js';
+import * as models from '../src/models/index.js';
+
+const { User } = models;
 
 dotenv.config();
 
@@ -38,17 +41,10 @@ if (!process.env.MONGO_URI) {
 await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 });
 
 try {
-  // The whole app is one document: users + all catalog content. `data: {}` makes Mongoose
-  // create every empty list the controllers expect (seeds, Fertilizer, Insecticide, Communication, main).
-  let doc = await User.findOne();
-  if (!doc) {
-    doc = new User({ users: [], data: {} });
-    console.log('Created the content document (empty catalog).');
-  } else {
-    console.log('Content document already exists, leaving the catalog as it is.');
-  }
+  // create every collection and its indexes (unique username / e-mail, parent lookups ...)
+  await Promise.all(Object.values(models).filter((m) => typeof m?.init === 'function').map((m) => m.init()));
 
-  const existing = doc.users.find((u) => u.username === username);
+  const existing = await User.findOne({ username });
   if (existing) {
     if (!RESET) {
       console.log(`User "${username}" already exists. Use --reset-password to set a new password.`);
@@ -56,16 +52,16 @@ try {
       existing.password = await bcrypt.hash(password, 10);
       existing.resetOTP = null;
       existing.resetOTPExpires = null;
-      await doc.save();
+      await existing.save();
       console.log(`Password for "${username}" updated.`);
       if (generated) console.log(`New password: ${password}`);
     }
   } else {
-    if (doc.users.some((u) => u.email && u.email.toLowerCase() === email.toLowerCase())) {
+    if (await User.findOne({ email }).collation({ locale: 'en', strength: 2 })) {
       console.error(`The email ${email} is already used by another account. Set ADMIN_EMAIL.`);
       process.exit(1);
     }
-    doc.users.push({
+    await User.create({
       name,
       username,
       email,
@@ -73,7 +69,6 @@ try {
       role: 'admin',
       isEmailVerified: true,
     });
-    await doc.save();
     console.log(`Admin account created: username "${username}", email ${email}.`);
     if (generated) console.log(`Generated password (shown once, change it after signing in): ${password}`);
   }

@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import mongoose from 'mongoose';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
@@ -21,7 +20,13 @@ const PUBLIC_API_URL = () =>
 const verifyLink = (token) => `${PUBLIC_API_URL()}/api/auth/verify-email/${token}`;
 const MIN_PASSWORD = 6;
 const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
-const sameEmail = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+const isDuplicateKey = (e) => e?.code === 11000;
+// accounts are looked up by exact username; e-mail comparison ignores letter case (collation index)
+const byEmail = (email) => User.findOne({ email }).collation({ locale: 'en', strength: 2 });
+// username or e-mail, as typed (both exact, like before)
+const byLogin = (input) => User.findOne({ $or: [{ username: input }, { email: input }] });
+const ID_RE = /^[0-9a-fA-F]{24}$/;
+const byId = (id) => (typeof id === 'string' && ID_RE.test(id) ? User.findById(id) : Promise.resolve(null));
 
 export const loginUser = async (req, res) => {
   const { username, password } = req.body;
@@ -29,11 +34,7 @@ export const loginUser = async (req, res) => {
     return res.status(400).json({ message: 'Username and password are required' });
 
   try {
-    const doc = await User.findOne(); // Get the main document that holds all users
-
-    if (!doc) return res.status(404).json({ message: 'No users found' });
-
-    const user = doc.users.find(u => u.username === username);
+    const user = await User.findOne({ username });
 
     if (!user)
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -45,7 +46,7 @@ export const loginUser = async (req, res) => {
     const accessToken = generateAccessToken(user);
     user.accessToken = accessToken;
 
-    await doc.save(); // Save the updated token
+    await user.save(); // Save the updated token
 
     res.status(200).json({
       message: 'Login successful',
@@ -74,22 +75,15 @@ export const registerUser = async (req, res) => {
   if (password.length < MIN_PASSWORD)
     return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
   try {
-    let doc = await User.findOne(); // One document holds all users
-    if (!doc) {
-      doc = new User({ users: [] });
-    }
-    const existingUser = doc.users.find(u => u.username === username);
-    if (existingUser) {
+    if (await User.exists({ username })) {
       return res.status(409).json({ message: 'username already exist' });
     }
-    const existingUserEmail = doc.users.find(u => sameEmail(u.email, email));
-    if (existingUserEmail) {
+    if (await byEmail(email).select('_id')) {
       return res.status(409).json({ message: 'email already exist' });
     }
     const token = crypto.randomBytes(20).toString('hex');
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = {
-      _id: new mongoose.Types.ObjectId(),
+    const newUser = new User({
       name,
       username,
       password: hashedPassword,
@@ -97,11 +91,17 @@ export const registerUser = async (req, res) => {
       role: "user",
       isEmailVerified: false,
       emailVerificationToken: token,
-    };
+    });
     newUser.accessToken = generateAccessToken(newUser);
 
-    doc.users.push(newUser);
-    await doc.save();
+    try {
+      await newUser.save();
+    } catch (e) {
+      // lost a race with a parallel registration: the unique indexes decide
+      if (!isDuplicateKey(e)) throw e;
+      const field = e.keyPattern?.username ? 'username' : 'email';
+      return res.status(409).json({ message: `${field} already exist` });
+    }
 
     // The account exists even if the mail provider hiccups; the mail can be re-sent from the user page.
     try {
@@ -135,12 +135,7 @@ export const forgotPassword = async (req, res) => {
     return res.status(400).json({ message: 'Username or email is required' });
   try {
     // Find user by username or email
-    const doc = await User.findOne();
-    if (!doc) return res.status(404).json({ message: 'User storage not found' });
-
-    const user = doc.users.find(
-      (u) => u.username === input || u.email === input
-    );
+    const user = await byLogin(input);
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
@@ -151,7 +146,7 @@ export const forgotPassword = async (req, res) => {
     user.resetOTPExpires = expiry;
 
     await sendEmail(user.email, 'Your OTP Code', otpTemplate(user.username, otp));
-    await doc.save(); // Save the entire document
+    await user.save();
 
     res.json({ message: 'OTP sended check your email' }); // Remove `otp` in prod
 
@@ -166,12 +161,7 @@ export const verifyOTP = async (req, res) => {
     return res.status(400).json({ message: 'Username/email and OTP are required' });
 
   try {
-    const doc = await User.findOne();
-    if (!doc) return res.status(404).json({ message: 'No users found' });
-
-    const user = doc.users.find(
-      (u) => u.username === input || u.email === input
-    );
+    const user = await byLogin(input);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -204,12 +194,7 @@ export const resetPassword = async (req, res) => {
     return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
 
   try {
-    const doc = await User.findOne();
-    if (!doc) return res.status(404).json({ message: 'No users found' });
-
-    const user = doc.users.find(u =>
-      u.username === input || u.email === input
-    );
+    const user = await byLogin(input);
 
     if (!user)
       return res.status(404).json({ message: 'User not found' });
@@ -229,7 +214,7 @@ export const resetPassword = async (req, res) => {
     user.passwordChangedAt = new Date(); // revokes every token issued before now
     user.accessToken = null;
 
-    await doc.save();
+    await user.save();
 
     res.json({ message: 'Password reset successful' });
 
@@ -249,12 +234,7 @@ export const updateUser = async (req, res) => {
   if (email && !isEmail(email))
     return res.status(400).json({ message: 'Please enter a valid email address' });
   try {
-    // Get the single User document that contains all users
-    const rootUserDoc = await User.findOne();
-    if (!rootUserDoc) return res.status(404).json({ message: 'User collection not found' });
-
-    // Find the specific user by _id in the array
-    const user = rootUserDoc.users.find(u => u._id.toString() === id);
+    const user = await byId(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Handle password change if requested
@@ -268,7 +248,7 @@ export const updateUser = async (req, res) => {
     }
     // Handle username update if provided
     if (username && username !== user.username) {
-      const usernameTaken = rootUserDoc.users.some(u => u.username === username && u._id.toString() !== id);
+      const usernameTaken = await User.exists({ username, _id: { $ne: user._id } });
       if (usernameTaken) return res.status(409).json({ message: 'Username already in use by another user' });
       user.username = username;
     }
@@ -278,7 +258,7 @@ export const updateUser = async (req, res) => {
 
     if (email && email !== user.email) {
       // Check if email already exists in another user
-      const emailExists = rootUserDoc.users.some(u => sameEmail(u.email, email) && u._id.toString() !== id);
+      const emailExists = await byEmail(email).where({ _id: { $ne: user._id } }).select('_id');
       if (emailExists) {
         return res.status(409).json({ message: 'Email already in use by another user' });
       }
@@ -295,7 +275,12 @@ export const updateUser = async (req, res) => {
       );
     }
 
-    await rootUserDoc.save();
+    try {
+      await user.save();
+    } catch (e) {
+      if (!isDuplicateKey(e)) throw e;
+      return res.status(409).json({ message: e.keyPattern?.username ? 'Username already in use by another user' : 'Email already in use by another user' });
+    }
 
     res.status(200).json({
       message: 'User updated successfully',
@@ -318,16 +303,13 @@ export const verifyEmail = async (req, res) => {
   const { token } = req.params;
 
   try {
-    const doc = await User.findOne();
-    if (!doc) return res.status(404).send(emailInvalidOrExpiredTemplate());
-
-    const user = doc.users.find(u => u.emailVerificationToken === token);
+    const user = typeof token === 'string' && token ? await User.findOne({ emailVerificationToken: token }) : null;
     if (!user) return res.status(400).send(emailInvalidOrExpiredTemplate());
 
     user.isEmailVerified = true;
     user.emailVerificationToken = null;
 
-    await doc.save();
+    await user.save();
 
     res.status(200).send(emailVerifiedTemplate(user.username));
 
@@ -340,17 +322,14 @@ export const verifyUser = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const rootDoc = await User.findOne();
-    if (!rootDoc) return res.status(404).json({ message: 'User collection not found' });
-
-    const user = rootDoc.users.find(u => u._id.toString() === id);
+    const user = await byId(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Generate and assign verification token
     user.emailVerificationToken = crypto.randomBytes(20).toString('hex');
     user.isEmailVerified = false;
 
-    await rootDoc.save();
+    await user.save();
 
     const verificationLink = verifyLink(user.emailVerificationToken);
 
@@ -377,10 +356,7 @@ export const adminResetPassword = async (req, res) => {
     return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
 
   try {
-    const doc = await User.findOne();
-    if (!doc) return res.status(404).json({ message: 'User collection not found' });
-
-    const user = doc.users.find((u) => u._id.toString() === id);
+    const user = await byId(id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     if (user.role === 'admin')
       return res.status(403).json({ message: 'The master password is changed from account settings' });
@@ -391,7 +367,7 @@ export const adminResetPassword = async (req, res) => {
     user.resetOTPExpires = null;
     user.passwordChangedAt = new Date(); // signs the user out everywhere
     user.accessToken = null;
-    await doc.save();
+    await user.save();
 
     res.status(200).json({ message: 'Password reset successful' });
   } catch (error) {
@@ -403,8 +379,7 @@ export const adminResetPassword = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     if (!req.user.userId) return res.status(404).json({ message: 'User not found' });
-    const doc = await User.findOne({ 'users._id': req.user.userId }, { 'users.$': 1 }).lean();
-    const u = doc?.users?.[0];
+    const u = ID_RE.test(String(req.user.userId)) ? await User.findById(req.user.userId).lean() : null;
     if (!u) return res.status(404).json({ message: 'User not found' });
     res.status(200).json({
       user: { id: u._id, name: u.name, username: u.username, email: u.email, role: u.role, isEmailVerified: u.isEmailVerified },

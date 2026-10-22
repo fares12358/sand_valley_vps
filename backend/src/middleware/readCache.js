@@ -1,6 +1,6 @@
 // In-memory cache for the public, read-only content routes.
 //
-// Every content GET loads the whole single-document database from MongoDB, which costs a round
+// Every content GET reads several collections from MongoDB (MongoDB Atlas, a network hop), which costs a round
 // trip each time. The responses only change when someone writes, so we keep them in memory and
 // throw the whole cache away after any successful write (POST/PUT/DELETE). Bodies and status
 // codes are unchanged; a TTL is a safety net for edits made directly in the database.

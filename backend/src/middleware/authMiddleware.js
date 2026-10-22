@@ -29,11 +29,9 @@ export const protect = async (req, res, next) => {
 
         // Tokens issued at login carry userId; legacy tokens (registration) do not.
         if (decoded.userId && mongoose.Types.ObjectId.isValid(decoded.userId)) {
-            const doc = await User.findOne(
-                { 'users._id': decoded.userId },
-                { 'users.$': 1 }
-            ).lean();
-            const account = doc?.users?.[0];
+            const account = await User.findById(decoded.userId)
+                .select('role passwordChangedAt')
+                .lean();
             if (!account) {
                 return res.status(403).json({ message: 'Invalid or expired token' });
             }

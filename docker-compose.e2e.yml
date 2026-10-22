@@ -1,7 +1,7 @@
 # Throwaway stack for automated tests (never use for real data):
 #   node e2e/run.mjs          # builds, starts, runs API + browser tests, tears everything down
 #
-# Own project name and port, an empty MongoDB in memory, mail in dry-run mode, rate limits off.
+# Own project name and port, an empty throwaway MongoDB container (memory only, never Atlas), mail in dry-run mode, rate limits off.
 name: sandvalley-e2e
 
 services:

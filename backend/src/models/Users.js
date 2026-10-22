@@ -1,186 +1,23 @@
-// models/Users.js
+// users collection: one document per account (real unique indexes, no shared document).
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-  users: [
-    {
-      _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
-      name: { type: String },
-      username: { type: String, required: true, unique: true },
-      password: { type: String, required: true },
-      email: { type: String, unique: true, required: true },
-      accessToken: { type: String },
-      // set when the password is reset by OTP or by the master: older tokens stop working
-      passwordChangedAt: { type: Date },
-      role: { type: String },
-      resetOTP: String,
-      resetOTPExpires: Date,
-      emailVerificationToken: { type: String },
-      isEmailVerified: { type: Boolean, default: false },
-    }
-  ],
-  data: {
-    seeds: {
-      _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-      data: [
-        {
-          //cat
-          _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-          img: {
-            url: { type: String },
-            id: { type: String },
-          },
-          name: { type: String },
-          Type: [
-            {
-              //subcat
-              _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-              img: {
-                url: { type: String },
-                id: { type: String },
-              },
-              name: { type: String },
-              description: {
-                //desc
-                img: {
-                  url: { type: String },
-                  id: { type: String },
-                },
-                name: { type: String },
-                company: { type: String },
-                description: { type: String }
-              }
-            }
-          ]
-        }
-      ]
-    },
-    Fertilizer: {
-      _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-      data: [
-        {
-          //cat
-          _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-          name: { type: String },
-          img: {
-            url: { type: String },
-            id: { type: String },
-          },
-          Type: [
-            {
-              _id: {
-                type: mongoose.Schema.Types.ObjectId,
-                default: () => new mongoose.Types.ObjectId()
-              },
-              name: { type: String },
-              img: {
-                url: { type: String },
-                id: { type: String }
-              },
-              company: { type: String, required: false }, // optional
-              description: { type: String, required: false }, // optional
-              Type: [
-                {
-                  _id: {
-                    type: mongoose.Schema.Types.ObjectId,
-                    default: () => new mongoose.Types.ObjectId()
-                  },
-                  name: { type: String },
-                  img: {
-                    url: { type: String },
-                    id: { type: String }
-                  },
-                  company: { type: String },
-                  description: { type: String }
-                }
-              ]
-            }
-          ]
+  name: { type: String },
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  email: { type: String, required: true },
+  accessToken: { type: String },
+  // set when the password is reset by OTP or by the master: older tokens stop working
+  passwordChangedAt: { type: Date },
+  role: { type: String, default: 'user' },
+  resetOTP: String,
+  resetOTPExpires: Date,
+  emailVerificationToken: { type: String, index: true, sparse: true },
+  isEmailVerified: { type: Boolean, default: false },
+}, { timestamps: true, collection: 'users' });
 
-        }
-      ]
-    },
-    Insecticide: {
-      _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-      data: [
-        {
-          //cat
-          _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-          img: {
-            url: { type: String },
-            id: { type: String },
-          },
-          name: { type: String },
-          Type: [
-            {
-              //subcat
-              _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-              name: { type: String },
-              img: {
-                url: { type: String },
-                id: { type: String },
-              },
-              description: { type: String },
-              company: { type: String },
-            }
-          ]
-        }
-      ]
-    },
-    Communication: {
-      _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-      data: [
-        {
-          //place
-          _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-          img: {
-            url: { type: String },
-            id: { type: String },
-          },
-          name: { type: String },
-          eng: [
-            {
-              //eng data
-              _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-              img: {
-                url: { type: String },
-                id: { type: String },
-              },
-              name: { type: String },
-              phone: { type: String },
-            }
-          ]
-        }
-      ]
-    },
-    main: {
-      seeds: {
-        img: {
-          url: { type: String },
-          id: { type: String },
-        }
-      },
-      Fertilizer: {
-        img: {
-          url: { type: String },
-          id: { type: String },
-        }
-      },
-      Insecticide: {
-        img: {
-          url: { type: String },
-          id: { type: String },
-        }
-      },
-      Communication: {
-        img: {
-          url: { type: String },
-          id: { type: String },
-        }
-      }
-    }
-  }
-}, { timestamps: true });
+// e-mail addresses are unique regardless of letter case
+userSchema.index({ email: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 
 const User = mongoose.model('User', userSchema);
 export default User;
