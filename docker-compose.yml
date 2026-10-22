@@ -26,6 +26,8 @@ services:
       EMAIL_PASS: ${EMAIL_PASS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL in .env (the address people use, no trailing slash)}
       UPLOAD_DIR: /data/uploads
+      # origins allowed by CORS (comma separated), empty = all
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       # used by scripts/seed.mjs
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
@@ -39,6 +41,9 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        # the dashboard calls this backend address (baked in at build time: rebuild after changing it)
+        VITE_API_URL: ${VITE_API_URL:-}
     restart: unless-stopped
     depends_on:
       backend:
