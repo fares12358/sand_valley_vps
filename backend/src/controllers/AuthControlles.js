@@ -103,7 +103,7 @@ export const registerUser = async (req, res) => {
       const hit = e.keyPattern || e.keyValue || {};
       const key = 'username' in hit ? 'username' : 'email' in hit ? 'email' : null;
       if (!key) {
-        console.error('Registration duplicate key on unexpected index:', e.message);
+        console.error('Registration duplicate key on unexpected index:', JSON.stringify(e.keyPattern), JSON.stringify(e.keyValue), e.message);
         return res.status(500).json({ message: 'Registration failed' });
       }
       return res.status(409).json({ message: `${key} already exist` });
