@@ -7,7 +7,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
-COPY e2e/package.json e2e/
 RUN npm ci --omit=dev -w backend
 
 # ---- runtime ----

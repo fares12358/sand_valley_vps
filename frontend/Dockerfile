@@ -7,7 +7,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
-COPY e2e/package.json e2e/
 RUN npm ci -w frontend
 COPY frontend frontend
 # same-origin API: the browser calls /api/... on the host that served the page
